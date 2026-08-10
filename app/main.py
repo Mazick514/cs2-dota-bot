@@ -12,6 +12,7 @@ from app.bot.handlers import (
     register_common_handlers,
     register_cs2_team_handlers,
     register_dota2_team_handlers,
+    register_test_command_handlers,
 )
 from app.config import Settings
 from app.database.database import Database
@@ -29,6 +30,7 @@ from app.services import (
     GroupService,
     MatchService,
     NotificationService,
+    TestModeService,
     TeamService,
 )
 from app.workers import MatchTracker
@@ -91,6 +93,12 @@ async def run() -> None:
         teams=dota2_team_service,
         groups=group_service,
         permissions=AdminPermissionService(),
+    )
+    register_test_command_handlers(
+        dispatcher,
+        groups=group_service,
+        permissions=AdminPermissionService(),
+        tests=TestModeService(cs2_provider=cs2_provider, teams=teams_repository, tracker=tracker),
     )
 
     await tracker.start()

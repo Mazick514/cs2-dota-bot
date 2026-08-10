@@ -13,6 +13,7 @@ from app.domain.models import EsportsMatch, EsportsTeam
 from app.services.matches import MatchService
 from app.services.notifications import NotificationService
 from app.services.teams import TeamService
+from app.services.test_mode import TestModeService
 from app.workers.match_tracker import MatchTracker
 from tests.conftest import FakeCS2Provider
 
@@ -81,3 +82,27 @@ async def test_finished_match_is_sent_once_after_restart_safe_polling(
     assert len(sender.messages) == 1
     assert sender.messages[0][0] == 100
     assert "Natus Vincere ПОБЕДИЛИ" in sender.messages[0][1]
+
+
+async def test_test_match_uses_tracker_pipeline_and_keeps_no_test_subscription(database: Database) -> None:
+    groups = GroupRepository(database)
+    await groups.upsert(100, "supergroup", "One", is_active=True)
+    teams = TeamRepository(database)
+    provider = FakeCS2Provider()
+    sender = FakeSender()
+    tracker = MatchTracker(
+        providers=(provider,),
+        teams=teams,
+        matches=MatchService(teams, MatchRepository(database)),
+        notifications=NotificationService(NotificationRepository(database), sender),
+        interval_seconds=60,
+    )
+    tests = TestModeService(cs2_provider=provider, teams=teams, tracker=tracker)
+
+    assert (await tests.check_api()).match_count == 0
+    assert await tests.process_test_match(100) == 1
+    assert await tests.process_test_match(100) == 0
+
+    assert len(sender.messages) == 1
+    assert "Test Team Alpha ПОБЕДИЛИ" in sender.messages[0][1]
+    assert await teams.list_tracked(100, Game.CS2) == []

@@ -4,7 +4,7 @@ import asyncio
 import logging
 from datetime import UTC, datetime
 
-from app.database.repositories.teams import TeamRepository
+from app.database.repositories.teams import TeamRepository, TeamSubscription
 from app.domain.enums import MatchStatus
 from app.domain.models import EsportsMatch, MatchScoreboard
 from app.providers.base import EsportsDataProvider
@@ -48,34 +48,58 @@ class MatchTracker:
 
     async def run_once(self) -> None:
         for provider in self._providers:
-            await self._track_provider(provider)
+            await self.process_provider(provider)
 
-    async def _track_provider(self, provider: EsportsDataProvider) -> None:
+    async def process_provider(self, provider: EsportsDataProvider) -> int:
+        """Fetch and process provider matches through the polling workflow."""
+
+        return await self._track_provider(provider)
+
+    async def _track_provider(self, provider: EsportsDataProvider) -> int:
         subscriptions = await self._teams.list_active_subscriptions(provider.game)
         if not subscriptions:
-            return
+            return 0
         finished_matches = await provider.get_recent_finished_matches()
+        sent_count = 0
         for provider_match in finished_matches:
-            if provider_match.status is not MatchStatus.FINISHED:
-                continue
-            relevant = [
-                subscription
-                for subscription in subscriptions
-                if provider_match.includes_team(subscription.team.provider_team_id)
-                and self._finished_after_tracking(provider_match.finished_at, subscription.tracked_at)
-            ]
-            if not relevant:
-                continue
-            stored_match = await self._matches.store_finished_match(provider_match)
-            scoreboard = await self._load_scoreboard(provider, provider_match)
-            for subscription in relevant:
-                await self._notifications.send_finished_match(
-                    subscription.chat_id,
-                    stored_match,
-                    provider_match,
-                    subscription.team,
-                    scoreboard,
-                )
+            sent_count += await self._process_match(provider, provider_match, subscriptions)
+        return sent_count
+
+    async def process_match(self, provider: EsportsDataProvider, provider_match: EsportsMatch) -> int:
+        """Process one match through the same path used by the polling worker."""
+
+        subscriptions = await self._teams.list_active_subscriptions(provider.game)
+        return await self._process_match(provider, provider_match, subscriptions)
+
+    async def _process_match(
+        self,
+        provider: EsportsDataProvider,
+        provider_match: EsportsMatch,
+        subscriptions: list[TeamSubscription],
+    ) -> int:
+        if provider_match.status is not MatchStatus.FINISHED:
+            return 0
+        relevant = [
+            subscription
+            for subscription in subscriptions
+            if provider_match.includes_team(subscription.team.provider_team_id)
+            and self._finished_after_tracking(provider_match.finished_at, subscription.tracked_at)
+        ]
+        if not relevant:
+            return 0
+        stored_match = await self._matches.store_finished_match(provider_match)
+        scoreboard = await self._load_scoreboard(provider, provider_match)
+        sent_count = 0
+        for subscription in relevant:
+            if await self._notifications.send_finished_match(
+                subscription.chat_id,
+                stored_match,
+                provider_match,
+                subscription.team,
+                scoreboard,
+            ):
+                sent_count += 1
+        return sent_count
 
     @staticmethod
     async def _load_scoreboard(
