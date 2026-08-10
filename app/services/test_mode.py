@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import ClassVar
 
 from app.database.repositories.teams import TeamRepository
 from app.domain.enums import Game, MatchStatus
@@ -47,6 +48,8 @@ class ApiCheckResult:
 
 class TestModeService:
     """Runs administrator-requested diagnostics through production dependencies."""
+
+    __test__: ClassVar[bool] = False
 
     def __init__(self, *, cs2_provider: CS2DataProvider, teams: TeamRepository, tracker: MatchTracker) -> None:
         self._cs2_provider = cs2_provider

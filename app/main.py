@@ -30,8 +30,8 @@ from app.services import (
     GroupService,
     MatchService,
     NotificationService,
-    TestModeService,
     TeamService,
+    TestModeService,
 )
 from app.workers import MatchTracker
 
@@ -82,6 +82,12 @@ async def run() -> None:
 
     dispatcher = Dispatcher()
     register_common_handlers(dispatcher, group_service)
+    register_test_command_handlers(
+        dispatcher,
+        groups=group_service,
+        permissions=AdminPermissionService(),
+        tests=TestModeService(cs2_provider=cs2_provider, teams=teams_repository, tracker=tracker),
+    )
     register_cs2_team_handlers(
         dispatcher,
         teams=cs2_team_service,
@@ -93,12 +99,6 @@ async def run() -> None:
         teams=dota2_team_service,
         groups=group_service,
         permissions=AdminPermissionService(),
-    )
-    register_test_command_handlers(
-        dispatcher,
-        groups=group_service,
-        permissions=AdminPermissionService(),
-        tests=TestModeService(cs2_provider=cs2_provider, teams=teams_repository, tracker=tracker),
     )
 
     await tracker.start()
