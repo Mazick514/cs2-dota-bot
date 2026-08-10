@@ -1,0 +1,1 @@
+"""Esports Telegram bot application."""
